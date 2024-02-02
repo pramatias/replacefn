@@ -1,6 +1,7 @@
 use syn::visit::{self, Visit};
 use syn::{ItemFn, ItemImpl};
 use proc_macro2;
+use quote::ToTokens;
 
 pub struct FoundFunction {
     pub name: String,
@@ -36,29 +37,44 @@ impl FnVisitor {
 }
 
 impl<'ast> Visit<'ast> for FnVisitor {
-    fn visit_item_fn(&mut self, node: &'ast ItemFn) {
-        self.check_function_name(&node.sig.ident, &quote::quote! { #node.block });
-        // Delegate to the default impl to visit any nested functions.
-        visit::visit_item_fn(self, node);
-    }
+    fn visit_item(&mut self, node: &'ast syn::Item) {
+        match node {
+            syn::Item::Fn(item_fn) => {
+                self.check_function_name(&item_fn.sig.ident, &quote::quote! { #item_fn.block });
+            }
+            syn::Item::Impl(item_impl) => {
+                // Visit associated functions inside the impl block
+                for item in &item_impl.items {
+                    if let syn::ImplItem::Fn(impl_fn) = item {
+                        self.check_function_name(&impl_fn.sig.ident, &quote::quote! { #impl_fn.block });
+                    }
+                }
+            }
+            syn::Item::Struct(item_struct) => {
+                // Handle struct-specific logic here
+                println!("Found struct:");
+                println!("Name: {}", item_struct.ident);
 
-    fn visit_item_impl(&mut self, node: &'ast ItemImpl) {
-        // Visit associated functions inside the impl block
-        for item in &node.items {
-            if let syn::ImplItem::Fn(impl_fn) = item {
-                self.check_function_name(&impl_fn.sig.ident, &quote::quote! { #impl_fn.block });
+                // Print information about struct fields
+                for field in &item_struct.fields {
+                    if let Some(ident) = &field.ident {
+                        println!("Field Name: {}", ident);
+
+                        // Provide a mutable reference to a TokenStream as an argument
+                        let mut field_type_tokens = proc_macro2::TokenStream::new();
+                        quote::ToTokens::to_tokens(&field.ty, &mut field_type_tokens);
+                        println!("Field Type: {:#?}", field_type_tokens);
+                    }
+                }
+
+                // Add more details about the struct if needed
+            }
+            _ => {
+                // Handle other item types if needed
             }
         }
 
-        // Delegate to the default impl to visit other items inside the impl block.
-        visit::visit_item_impl(self, node);
-    }
-
-    // Handle other items if needed
-    fn visit_item(&mut self, node: &'ast syn::Item) {
-        // Implement custom logic for other types of items if needed.
-        // For example, you can check if it's an impl block and visit its associated functions.
-        // This depends on your specific requirements.
+        // Delegate to the default impl to visit other items.
         visit::visit_item(self, node);
     }
 }
